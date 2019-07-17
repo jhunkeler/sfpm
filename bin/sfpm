@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+source "$(dirname ${BASH_SOURCE[0]})/../share/sfpm/common.sh"
+sfpm_gen_sysroot
+
+# ----
+env_name=
+mode_install=0
+mode_search=0
+mode_update=0
+mode_verify=0
+packages=()
+
+while (( "${#}" )); do
+    case "${1}" in
+        -e|--env)
+            env_name="${2}"
+            shift 2
+            ;;
+        -i|--install)
+            mode_install=1
+            shift
+            ;;
+        -s|--search)
+            mode_search=1
+            shift
+            ;;
+        -u|--update|--upgrade)
+            mode_update=1
+            shift
+            ;;
+        -v|--verify)
+            mode_verify=1
+            shift
+            ;;
+        --)
+            shift
+            break
+            ;;
+        -*|--*)
+            msg_error "Invalid argument: ${1}" >&2
+            exit 1
+            ;;
+        *)
+            packages+=("${2}")
+            shift
+            ;;
+    esac
+done
+
+set -- "${packages[@]}"
+
+if [[ -z ${env_name} ]] && [[ ${mode_install} == 0 ]]; then
+    msg_error "No environment specified. (-e {name}, required)"
+    exit 1
+fi
+
+sfpm_index_create
+sfpm_env_create "${env_name}"
+sfpm_install "${env_name}" $(sfpm_index_search nasm)  # "nasm" "2.14.02" "1"
+sfpm_install "${env_name}" $(sfpm_index_search zlib)
+sfpm_install "${env_name}" $(sfpm_index_search expat)  # "expat" "2.2.6" "1"
+sfpm_install "${env_name}" $(sfpm_index_search python)  # "python" "3.7.2" "1"

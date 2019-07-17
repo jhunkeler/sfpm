@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+
+# Deny execution as root user
+uid=$(id -u)
+username=$(whoami)
+if [[ ${uid} == 0 ]] || [[ ${username} == root ]]; then
+    msg_error "$(basename ${0}) should be executed by a regular user, not with root."
+    exit 1
+fi
+
+unset uid
+unset username
+
+export SFPM_MAKEPKG_ENV=$(basename $(mktemp -u sfpm.makepkg.XXXXXX))
+export sfpm_build_scriptdir=$(pwd)
+
+source "$(dirname ${BASH_SOURCE[0]})/../share/sfpm/common.sh"
+source "${sfpm_internal_include}/build.sh"
+
+# --- Functions
+
+cleanup() {
+    if [[ ${buildroot} == *${sfpm_tmpdir}* ]]; then
+        msg "Removing ${buildroot}"
+        rm -rf "${buildroot}"
+    fi
+
+    if [[ $(sfpm_env_exists ${SFPM_MAKEPKG_ENV}) ]]; then
+        deactivate
+        sfpm_env_remove "${SFPM_MAKEPKG_ENV}"
+    fi
+}
+trap cleanup EXIT SIGINT SIGTERM
+
+# --- Main
+
+# Assimilate build definition
+msg "Sourcing build script"
+source ${1}
+
+# Sanity checks
+msg "Validating build script"
+sfpm_check_required_keys
+
+# Create buildroot
+buildroot=$(sfpm_gen_buildroot)
+root="${buildroot}/root"
+pkgdir="${buildroot}/pkg"
+srcdir="${buildroot}/src"
+
+mkdir -p "${root}" "${pkgdir}" "${srcdir}"
+
+# Generate temporary sfpm build environment
+sfpm_env_create "${SFPM_MAKEPKG_ENV}"
+
+# Activate temporary sfpm build environment (provides ${SFPM_ENV})
+source ${sfpm_envdir}/${SFPM_MAKEPKG_ENV}/bin/activate
+
+# Setup compiler/linker flags
+sfpm_build_cflags="-I${SFPM_ENV}/include ${sfpm_build_cflags}"
+sfpm_build_ldflags="-L${SFPM_ENV}/lib ${sfpm_build_ldflags}"
+
+# Ensure local dependencies resolve during build
+export LD_LIBRARY_PATH="${SFPM_ENV}/lib"
+
+msg "Executing tasks"
+pushd "${root}"
+    sfpm_build_env_do_depends "${SFPM_MAKEPKG_ENV}"
+    sources_fetch
+    sfpm_sources_cmp_sha256
+    sources_extract "${srcdir}"
+    prepare
+    build
+    check
+    package
+    sfpm_gen_packages
+popd
+
